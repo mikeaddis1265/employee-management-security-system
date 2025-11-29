@@ -1,0 +1,29 @@
+# dependencies
+/node_modules
+
+# next.js build output
+/.next/
+/out/
+
+# environment variables (real secrets — never commit)
+.env
+.env.local
+.env.*.local
+
+# files with real credentials / personal notes, not part of the app
+pass.txt
+app/pass.txt
+
+# stray Windows redirection artifact
+nul
+
+# database backups
+/backups/
+
+# misc
+*.log
+.DS_Store
+Thumbs.db
+
+# local claude settings
+.claude/settings.local.json
