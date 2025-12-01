@@ -20,6 +20,12 @@ nul
 # database backups
 /backups/
 
+# auto-generated Prisma client (regenerated via `npm run db:generate`)
+/src/generated/
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
 # misc
 *.log
 .DS_Store
