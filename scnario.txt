@@ -1,0 +1,243 @@
+5 SECURITY FEATURES IMPLEMENTATION GUIDE
+
+  1. MANDATORY ACCESS CONTROL (MAC) ✅
+
+  Requirement: Classify data into sensitivity levels (CONFIDENTIAL, INTERNAL, PUBLIC)
+
+  Where Implemented:
+  -  Schema: prisma/schema.prisma:119-123 - SecurityLevel enum
+  - Code: lib/access-control.ts:32-59 - MAC check function
+  - Logic: Users can only access resources at their security level or below
+
+  How to Demonstrate:
+  SCENARIO: Employee tries to access confidential salary data
+
+  1. Login as EMPLOYEE with SecurityLevel = INTERNAL
+     - Username: employee@test.com
+     - Navigate to Resources page
+
+  2. Try to access a CONFIDENTIAL resource
+     - System will deny with: "MAC: User security level 'INTERNAL' cannot access 'CONFIDENTIAL' resources"
+
+  3. Login as ADMIN/MANAGER with SecurityLevel = CONFIDENTIAL
+     - Same resource now accessible ✓
+
+  CODE LOCATION: lib/access-control.ts:43-59
+  DATABASE: users table has securityLevel field
+  LOG: Check logs table - shows "access_denied" with MAC denial reason
+
+  ---
+  2. DISCRETIONARY ACCESS CONTROL (DAC) 
+
+  Requirement: Resource owners can grant/revoke permissions to specific users
+
+  Where Implemented:
+  - Schema: prisma/schema.prisma:61-75 - Permission model
+  - Code: lib/access-control.ts:62-103 - DAC check
+  - Grant/Revoke: lib/access-control.ts:106-193
+
+  How to Demonstrate:
+  SCENARIO: Department head shares document with specific employee
+
+  1. Login as MANAGER (resource owner)
+     - Create a resource (document/file)
+     - Navigate to resource permissions
+
+  2. Grant READ permission to employee "john@test.com"
+     - API: POST /api/resources/[id]/permissions
+     - CODE: lib/access-control.ts:106-153
+
+  3. Login as john@test.com
+     - Can now READ the resource ✓
+     - Cannot WRITE (no write permission)
+
+  4. Manager revokes permission
+     - CODE: lib/access-control.ts:156-193
+     - John can no longer access it
+
+  CODE LOCATION: lib/access-control.ts:66-103
+  DATABASE: permissions table stores grants
+  LOG: Check logs - "permission_granted" and "permission_revoked" actions
+
+  ---
+  3. ROLE-BASED ACCESS CONTROL (RBAC) ✅
+
+  Requirement: Define roles (EMPLOYEE, MANAGER, HR, ADMIN) with specific permissions
+
+  Where Implemented:
+  - Schema: prisma/schema.prisma:112-117 - Role enum
+  - Schema: prisma/schema.prisma:77-82 - RoleDef model
+  - Code: lib/access-control.ts:196-231 - RBAC check
+
+  How to Demonstrate:
+  SCENARIO: Only HR can access payroll, only ADMIN can manage users
+
+  1. Login as EMPLOYEE
+     - Try to access /payroll page → DENIED (403)
+     - Try to access /admin/users → DENIED (403)
+
+  2. Login as HR
+     - Access /payroll → SUCCESS ✓
+     - Try /admin/users → DENIED (only ADMIN)
+
+  3. Login as ADMIN
+     - Access /payroll → SUCCESS ✓
+     - Access /admin/users → SUCCESS ✓
+     - Can modify roles, create users
+
+  CODE LOCATION: lib/access-control.ts:200-231
+  DATABASE: users.role field + roles table for permissions
+  MIDDLEWARE: middleware.ts checks role before allowing page access
+  API: app/api/admin/users/route.ts:66 - checks role === 'ADMIN'
+
+  ---
+  4. RULE-BASED ACCESS CONTROL (RuBAC) ✅
+
+  Requirement: Restrict access based on time/conditions (e.g., working hours)
+
+  Where Implemented:
+  - Code: lib/working-hours.ts:47-90 - Working hours check
+  - Code: lib/access-control.ts:234-309 - RuBAC with time/IP rules
+  - Settings: app/api/admin/settings/working-hours/route.ts - Admin config
+  - Login Check: app/api/auth/login/route.ts:138-159
+
+  How to Demonstrate:
+  SCENARIO: Non-admin users cannot login outside working hours
+
+  1. Login as ADMIN
+     - Navigate to /admin/settings
+     - Enable working hours: 9 AM - 5 PM, Mon-Fri only
+     - Save settings
+
+  2. Change system time to 11 PM (or Saturday)
+     - Or just configure hours to exclude current time
+
+  3. Try to login as EMPLOYEE
+     - System denies: "Login is only allowed between 9:00 AM and 5:00 PM"
+     - Or: "Login is not allowed on Saturday"
+
+  4. Login as ADMIN (same restricted time)
+     - Login SUCCESS ✓ (Admins bypass working hours)
+
+  CODE LOCATION:
+  - lib/working-hours.ts:62-64 (gets current time)
+  - lib/working-hours.ts:67-76 (day check)
+  - lib/working-hours.ts:79-87 (hour check)
+  - app/api/auth/login/route.ts:139 (checks during login)
+
+  DATABASE: system_settings table with key='working_hours'
+  LOG: "login_denied_outside_working_hours" in logs table
+
+  ---
+  5. AUDIT TRAILS AND LOGGING ✅
+
+  Requirement: Log all user activities with encryption, IP, timestamp
+
+  Where Implemented:
+  - Schema: prisma/schema.prisma:84-97 - Log model
+  - Schema: prisma/schema.prisma:99-110 - AuditTrail model
+  - Code: lib/logger.ts:14-42 - AES-256 encryption
+  - Code: lib/logger.ts:53-77 - Activity logging
+  - Code: lib/logger.ts:112-131 - Alerting mechanism
+
+  How to Demonstrate:
+  SCENARIO: All security events are logged and encrypted
+
+  1. Perform various actions:
+     - Login (success/failure)
+     - Access resources
+     - Change permissions
+     - Failed authentication attempts
+
+  2. Login as ADMIN
+     - Navigate to /admin/logs page
+     - View all logged activities:
+       ✓ Username
+       ✓ IP Address
+       ✓ Timestamp
+       ✓ Action performed
+       ✓ Encrypted details
+
+  3. Check database directly (PostgreSQL):
+     ```sql
+     SELECT * FROM logs ORDER BY timestamp DESC LIMIT 10;
+  - See details column is encrypted (hex format with IV)
+
+  4. Security Alerts:
+    - Failed login attempts → Console warning
+    - Account lockout → Console alert
+    - Access denied → Logged with reason
+
+  CODE LOCATION:
+  - lib/logger.ts:14-24 (AES-256 encryption)
+  - lib/logger.ts:53-77 (log activity with IP)
+  - lib/logger.ts:112-131 (critical event alerts)
+  - app/api/auth/login/route.ts:63-70 (logs failed attempts)
+
+  DATABASE:
+  - logs table (encrypted details)
+  - audit_trail table (role/permission changes)
+
+  ENCRYPTION: AES-256-CBC with random IV per log entry
+
+  ---
+
+  ## 📋 **BONUS FEATURES ALSO IMPLEMENTED:**
+
+  ### **6. Multi-Factor Authentication (MFA)** ✅
+  - **Code:** `lib/auth.ts` - TOTP implementation
+  - **API:** `app/api/profile/mfa/route.ts`
+  - **Test:** Enable MFA in profile, login requires 6-digit code
+
+  ### **7. Account Lockout (Brute Force Protection)** ✅
+  - **Code:** `lib/auth.ts` - Lockout after 3 failed attempts
+  - **Login:** `app/api/auth/login/route.ts:61-79`
+  - **Test:** Try wrong password 3 times → account locked for 15 minutes
+
+  ### **8. Email Verification** ✅
+  - **API:** `app/api/auth/register/route.ts`
+  - **Code:** `lib/auth.ts`
+  - **Test:** New users must verify email before login
+
+  ### **9. Password Security** ✅
+  - **Hashing:** bcrypt with salt rounds
+  - **Code:** `lib/auth.ts`
+  - **Validation:** Minimum 8 chars, complexity requirements
+
+  ---
+
+  ## 🎯 **QUICK DEMO CHECKLIST FOR TEACHER:**
+
+● ✅ 1. MAC - Show employee blocked from CONFIDENTIAL data
+     → lib/access-control.ts:43-59
+
+  ✅ 2. DAC - Show resource owner granting permission
+     → lib/access-control.ts:106-153
+
+  ✅ 3. RBAC - Show different pages for EMPLOYEE vs ADMIN
+     → middleware.ts + lib/access-control.ts:200-231
+
+  ✅ 4. RuBAC - Show working hours restriction
+     → lib/working-hours.ts:62-87
+     → Admin settings page to configure
+
+  ✅ 5. Audit Logs - Show encrypted logs with all activities
+     → lib/logger.ts:14-77
+     → /admin/logs page
+
+  ---
+  📂 KEY FILES TO SHOW TEACHER:
+
+  1. Access Control Implementation: lib/access-control.ts (All 5 access controls)
+  2. Working Hours Logic: lib/working-hours.ts (RuBAC time-based)
+  3. Audit Logging: lib/logger.ts (Encryption + logging)
+  4. Database Schema: prisma/schema.prisma (All models)
+  5. Login Flow: app/api/auth/login/route.ts (All checks in action)
+
+  ---
+  All features from your PDF requirements are implemented and ready to demonstrate! 🚀
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+> Create seed data for the demo scenarios                                                                                                ↵ send 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ? for shortcuts
